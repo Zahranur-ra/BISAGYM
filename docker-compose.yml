@@ -1,0 +1,107 @@
+name: bisagym
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-gym}
+      POSTGRES_USER: ${POSTGRES_USER:-gym}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gym}
+      TZ: ${APP_TIMEZONE:-Asia/Jakarta}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      APP_NAME: ${APP_NAME:-Gym Face Access}
+      APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Jakarta}
+      SECRET_KEY: ${SECRET_KEY:-development-only-change-me}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-15}
+      REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-7}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://gym:gym@postgres:5432/gym}
+      AUTO_CREATE_DB: ${AUTO_CREATE_DB:-true}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
+      FACE_ENGINE: ${FACE_ENGINE:-opencv_sface}
+      FACE_MODEL_NAME: ${FACE_MODEL_NAME:-opencv_sface}
+      FACE_MODEL_VERSION: ${FACE_MODEL_VERSION:-2021dec}
+      FACE_DETECTION_MODEL_PATH: ${FACE_DETECTION_MODEL_PATH:-runtime-models/face_detection_yunet_2023mar.onnx}
+      FACE_RECOGNITION_MODEL_PATH: ${FACE_RECOGNITION_MODEL_PATH:-runtime-models/face_recognition_sface_2021dec.onnx}
+      FACE_DETECTION_MODEL_SHA256: ${FACE_DETECTION_MODEL_SHA256:-8F2383E4DD3CFBB4553EA8718107FC0423210DC964F9F4280604804ED2552FA4}
+      FACE_RECOGNITION_MODEL_SHA256: ${FACE_RECOGNITION_MODEL_SHA256:-0BA9FBFA01B5270C96627C4EF784DA859931E02F04419C829E83484087C34E79}
+      FACE_MATCH_METRIC: ${FACE_MATCH_METRIC:-cosine}
+      FACE_MATCH_THRESHOLD: ${FACE_MATCH_THRESHOLD:-0.50}
+      FACE_MATCH_AMBIGUITY_MARGIN: ${FACE_MATCH_AMBIGUITY_MARGIN:-0.05}
+      FACE_ENROLLMENT_CONSISTENCY_THRESHOLD: ${FACE_ENROLLMENT_CONSISTENCY_THRESHOLD:-0.45}
+      FACE_MIN_QUALITY_SCORE: ${FACE_MIN_QUALITY_SCORE:-0.70}
+      LIVENESS_MODE: ${LIVENESS_MODE:-none}
+      LIVENESS_MIN_SCORE: ${LIVENESS_MIN_SCORE:-0.70}
+      DEPTH_VALIDATION_ENABLED: ${DEPTH_VALIDATION_ENABLED:-false}
+      DEPTH_MIN_SCORE: ${DEPTH_MIN_SCORE:-0.70}
+      DEVICE_AUTH_MODE: ${DEVICE_AUTH_MODE:-shared_secret}
+      DEVICE_SHARED_SECRET: ${DEVICE_SHARED_SECRET:-development-device-secret}
+      CHECKIN_COOLDOWN_SECONDS: ${CHECKIN_COOLDOWN_SECONDS:-60}
+      RAW_CAPTURE_STORAGE_ENABLED: ${RAW_CAPTURE_STORAGE_ENABLED:-false}
+      RAW_CAPTURE_RETENTION_HOURS: ${RAW_CAPTURE_RETENTION_HOURS:-24}
+      DEMO_PASSWORD: ${DEMO_PASSWORD:-GymDemo123!}
+      KIOSK_RESULT_COOLDOWN_SECONDS: ${KIOSK_RESULT_COOLDOWN_SECONDS:-3}
+      MAX_SAMPLE_BYTES: ${MAX_SAMPLE_BYTES:-5000000}
+      LOGIN_RATE_LIMIT: ${LOGIN_RATE_LIMIT:-10}
+      KIOSK_RATE_LIMIT: ${KIOSK_RATE_LIMIT:-120}
+      RATE_LIMIT_WINDOW_SECONDS: ${RATE_LIMIT_WINDOW_SECONDS:-60}
+      MIGRATE_ON_START: ${MIGRATE_ON_START:-true}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+        restart: true
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready', timeout=3)"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+    restart: unless-stopped
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000/api/v1}
+      VITE_DEMO_MODE: ${VITE_DEMO_MODE:-false}
+      VITE_FACE_ENGINE: ${VITE_FACE_ENGINE:-opencv_sface}
+      VITE_DEVICE_TOKEN: ${VITE_DEVICE_TOKEN:-development-device-secret}
+    ports:
+      - "${WEB_PORT:-5173}:5173"
+    depends_on:
+      api:
+        condition: service_healthy
+        restart: true
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:5173/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+volumes:
+  postgres_data:
